@@ -32,10 +32,14 @@ import java.awt.font.FontRenderContext;
 import java.awt.font.TextAttribute;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.BufferedWriter;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -44,6 +48,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -68,6 +73,10 @@ public class CaptchaGenerator {
   private ThreadPoolExecutor executor;
   private boolean shouldStop;
   private CachedCaptcha cachedCaptcha;
+  private final Object datasetLock = new Object();
+  private final AtomicInteger datasetCounter = new AtomicInteger();
+  private BufferedWriter datasetWriter;
+  private Path datasetPath;
   private CachedCaptcha tempCachedCaptcha;
   private ThreadLocal<Iterator<CraftMapCanvas>> backplatesIterator;
   private ThreadLocal<Iterator<RenderedFont>> fontIterator;
@@ -263,6 +272,9 @@ public class CaptchaGenerator {
     int threadsCount = Runtime.getRuntime().availableProcessors();
     this.tempCachedCaptcha = new CachedCaptcha(this.plugin, threadsCount);
     this.executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(threadsCount);
+
+    this.prepareCaptchaDataset();
+
     ThreadGroup threadGroup = Thread.currentThread().getThreadGroup();
     LinkedList<Thread> threads = new LinkedList<>();
     this.executor.setThreadFactory(runnable -> {
@@ -294,6 +306,7 @@ public class CaptchaGenerator {
       this.cachedCaptcha = this.tempCachedCaptcha;
       this.tempCachedCaptcha = null;
       this.cachedCaptcha.build();
+      this.closeCaptchaDatasetWriter();
       this.executor.shutdown();
       this.shouldStop = false;
     });
@@ -320,6 +333,7 @@ public class CaptchaGenerator {
     map.drawImageCraft(this.painter.drawCaptcha(this.fontIterator.get().next(), this.nextColor(), answer.key()),
         this.painter.getWidth(), this.painter.getHeight());
     map.drawImage(this.painter.drawCurves(), this.painter.getWidth(), this.painter.getHeight());
+    this.saveCaptchaDatasetSample(map, answer.value());
 
     Function<MapPalette.MapVersion, MinecraftPacket[]> packet
         = mapVersion -> {
@@ -369,6 +383,93 @@ public class CaptchaGenerator {
 
     if (this.cachedCaptcha != null) {
       this.cachedCaptcha.dispose();
+    }
+
+    this.closeCaptchaDatasetWriter();
+  }
+
+  private void prepareCaptchaDataset() {
+    this.closeCaptchaDatasetWriter();
+
+    if (!Settings.IMP.MAIN.CAPTCHA_GENERATOR.SAVE_CAPTCHA_DATASET) {
+      return;
+    }
+
+    this.datasetCounter.set(0);
+
+    try {
+      this.datasetPath = Path.of(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_PATH);
+      Files.createDirectories(this.datasetPath);
+      this.datasetWriter = Files.newBufferedWriter(this.datasetPath.resolve("labels.csv"), StandardCharsets.UTF_8,
+          StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+      this.datasetWriter.write("filename,answer");
+      this.datasetWriter.newLine();
+      this.datasetWriter.flush();
+    } catch (IOException e) {
+      this.datasetWriter = null;
+      LimboFilter.getLogger().error("Failed to prepare captcha dataset output", e);
+    }
+  }
+
+  private void saveCaptchaDatasetSample(CraftMapCanvas map, String answer) {
+    if (!Settings.IMP.MAIN.CAPTCHA_GENERATOR.SAVE_CAPTCHA_DATASET || this.datasetWriter == null || this.datasetPath == null) {
+      return;
+    }
+
+    int index = this.datasetCounter.getAndIncrement();
+    String filename = String.format("captcha_%06d.png", index);
+    Path imagePath = this.datasetPath.resolve(filename);
+
+    int imageWidth = map.getWidth() * MapData.MAP_DIM_SIZE;
+    int imageHeight = map.getHeight() * MapData.MAP_DIM_SIZE;
+    BufferedImage image = new BufferedImage(imageWidth, imageHeight, BufferedImage.TYPE_INT_RGB);
+
+    byte[][] canvas = map.getCanvas();
+    for (int y = 0; y < imageHeight; y++) {
+      int canvasY = y / MapData.MAP_DIM_SIZE;
+      int localY = y % MapData.MAP_DIM_SIZE;
+      for (int x = 0; x < imageWidth; x++) {
+        int canvasX = x / MapData.MAP_DIM_SIZE;
+        int localX = x % MapData.MAP_DIM_SIZE;
+        int canvasIndex = canvas.length - 1 - canvasY * map.getWidth() - canvasX;
+        int localIndex = localY * MapData.MAP_DIM_SIZE + localX;
+        int color = Byte.toUnsignedInt(canvas[canvasIndex][localIndex]);
+        int rgb = (color << 16) | (color << 8) | color;
+        image.setRGB(x, y, 0xFF000000 | rgb);
+      }
+    }
+
+    synchronized (this.datasetLock) {
+      try {
+        ImageIO.write(image, "png", imagePath.toFile());
+        this.datasetWriter.write(filename);
+        this.datasetWriter.write(',');
+        this.datasetWriter.write(this.escapeCsvValue(answer));
+        this.datasetWriter.newLine();
+        this.datasetWriter.flush();
+      } catch (IOException e) {
+        LimboFilter.getLogger().error("Failed to save captcha dataset sample {}", filename, e);
+      }
+    }
+  }
+
+  private String escapeCsvValue(String value) {
+    String escaped = value.replace("\"", "\"\"");
+    return '"' + escaped + '"';
+  }
+
+  private void closeCaptchaDatasetWriter() {
+    synchronized (this.datasetLock) {
+      if (this.datasetWriter != null) {
+        try {
+          this.datasetWriter.close();
+        } catch (IOException e) {
+          LimboFilter.getLogger().warn("Failed to close captcha dataset writer", e);
+        }
+      }
+
+      this.datasetWriter = null;
+      this.datasetPath = null;
     }
   }
 
