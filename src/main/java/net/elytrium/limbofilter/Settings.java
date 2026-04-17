@@ -230,6 +230,8 @@ public class Settings extends YamlConfig {
       public List<String> BACKPLATE_PATHS = List.of("");
       @Comment("List of directories with background images to draw on captcha. Every file from these directories will be used.")
       public List<String> BACKPLATE_DIRECTORIES = List.of("C:\\Users\\V\\PycharmProjects\\aicrypto\\backplates");
+      @Comment("Maximum amount of backplates cached in memory from directories to speed up generation.")
+      public int BACKPLATE_CACHE_SIZE = 512;
       @Comment("Path to the font files to draw on captcha (ttf), can be empty.")
       public List<String> FONTS_PATH = List.of("");
       @Comment("List of directories with .ttf fonts. Every .ttf file from these directories will be loaded.")
