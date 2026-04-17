@@ -32,11 +32,10 @@ import java.awt.font.FontRenderContext;
 import java.awt.font.TextAttribute;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
+import java.io.BufferedWriter;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -93,10 +92,10 @@ public class CaptchaGenerator {
   private final AtomicInteger datasetValidationCounter = new AtomicInteger();
   private final Object datasetLock = new Object();
   private int datasetTotalImages;
-  private Path datasetTrainPath;
-  private Path datasetValidationPath;
-  private Writer trainLabels;
-  private Writer validationLabels;
+  private volatile Path datasetTrainPath;
+  private volatile Path datasetValidationPath;
+  private volatile BufferedWriter trainLabels;
+  private volatile BufferedWriter validationLabels;
 
   public CaptchaGenerator(LimboFilter plugin) {
     this.plugin = plugin;
@@ -191,16 +190,17 @@ public class CaptchaGenerator {
       ThreadLocalRandom random = ThreadLocalRandom.current();
       Settings.MAIN.CAPTCHA_GENERATOR.GRADIENT settings = Settings.IMP.MAIN.CAPTCHA_GENERATOR.GRADIENT;
 
-      Color[] colors = Settings.IMP.MAIN.CAPTCHA_GENERATOR.RGB_COLOR_LIST.stream().map(s -> Color.decode("#" + s)).toArray(Color[]::new);
+      Color[] colorArray = Settings.IMP.MAIN.CAPTCHA_GENERATOR.RGB_COLOR_LIST.stream().map(s -> Color.decode("#" + s)).toArray(Color[]::new);
 
       List<Double> fractions = settings.FRACTIONS;
 
       if (fractions == null || fractions.isEmpty()) {
-        double step = 1.0 / colors.length;
-        fractions = IntStream.range(0, colors.length).mapToDouble(i -> i * step).boxed().collect(Collectors.toList());
+        double step = 1.0 / colorArray.length;
+        fractions = IntStream.range(0, colorArray.length).mapToDouble(i -> i * step).boxed().collect(Collectors.toList());
       }
 
-      if (colors.length != fractions.size()) {
+      if (colorArray.length != fractions.size()) {
+        graphics.dispose();
         throw new IllegalStateException("The color list and fraction list must contain the same number of elements");
       }
 
@@ -210,7 +210,7 @@ public class CaptchaGenerator {
             (float) settings.START_Y + random.nextFloat() * (float) settings.START_Y_RANDOMNESS * this.painter.getHeight(),
             (float) settings.END_X - random.nextFloat() * (float) settings.END_X_RANDOMNESS * this.painter.getWidth(),
             (float) settings.END_Y - random.nextFloat() * (float) settings.END_Y_RANDOMNESS * this.painter.getHeight(),
-            Floats.toArray(fractions), colors);
+            Floats.toArray(fractions), colorArray);
 
         graphics.setPaint(paint);
         graphics.fillRect(0, 0, gradientImage.getWidth(), gradientImage.getHeight());
@@ -303,19 +303,30 @@ public class CaptchaGenerator {
 
     try {
       Path root = this.resolveDatasetRootPath(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_PATH);
-      this.datasetTrainPath = root.resolve("train");
-      this.datasetValidationPath = root.resolve("validation");
-      Files.createDirectories(this.datasetTrainPath);
-      Files.createDirectories(this.datasetValidationPath);
+      Path trainPath = root.resolve("train");
+      Path validationPath = root.resolve("validation");
+      Files.createDirectories(trainPath);
+      Files.createDirectories(validationPath);
 
-      this.trainLabels = new FileWriter(this.datasetTrainPath.resolve("labels.csv").toFile(), StandardCharsets.UTF_8, false);
-      this.validationLabels = new FileWriter(this.datasetValidationPath.resolve("labels.csv").toFile(), StandardCharsets.UTF_8, false);
-      this.trainLabels.write("file,label" + System.lineSeparator());
-      this.validationLabels.write("file,label" + System.lineSeparator());
+      BufferedWriter newTrainLabels = Files.newBufferedWriter(trainPath.resolve("labels.csv"), StandardCharsets.UTF_8);
+      BufferedWriter newValidationLabels = Files.newBufferedWriter(validationPath.resolve("labels.csv"), StandardCharsets.UTF_8);
+
+      newTrainLabels.write("file,label");
+      newTrainLabels.newLine();
+      newValidationLabels.write("file,label");
+      newValidationLabels.newLine();
+
+      synchronized (this.datasetLock) {
+        this.datasetTrainPath = trainPath;
+        this.datasetValidationPath = validationPath;
+        this.trainLabels = newTrainLabels;
+        this.validationLabels = newValidationLabels;
+        this.datasetTotalImages = this.calculateDatasetTotalImages();
+      }
+
       this.datasetSequence.set(0);
       this.datasetTrainCounter.set(0);
       this.datasetValidationCounter.set(0);
-      this.datasetTotalImages = this.calculateDatasetTotalImages();
     } catch (IOException e) {
       throw new IllegalArgumentException(e);
     }
@@ -612,25 +623,30 @@ public class CaptchaGenerator {
   }
 
   private void exportDatasetImage(CraftMapCanvas map, String answer) {
-    if (!Settings.IMP.MAIN.CAPTCHA_GENERATOR.SAVE_CAPTCHA_DATASET || this.trainLabels == null || this.validationLabels == null) {
-      return;
-    }
-
-    BufferedImage image = this.toDatasetImage(map);
-    int id = this.datasetSequence.incrementAndGet();
-    String fileName = String.format("captcha_%08d.png", id);
-    boolean useTrain = this.shouldUseTrainSplit();
-    Path outputPath = useTrain ? this.datasetTrainPath.resolve(fileName) : this.datasetValidationPath.resolve(fileName);
-
-    try {
-      ImageIO.write(image, "png", outputPath.toFile());
-      synchronized (this.datasetLock) {
-        Writer writer = useTrain ? this.trainLabels : this.validationLabels;
-        writer.write(fileName + "," + answer + System.lineSeparator());
-        writer.flush();
+    synchronized (this.datasetLock) {
+      if (!Settings.IMP.MAIN.CAPTCHA_GENERATOR.SAVE_CAPTCHA_DATASET
+          || this.trainLabels == null
+          || this.validationLabels == null
+          || this.datasetTrainPath == null
+          || this.datasetValidationPath == null) {
+        return;
       }
-    } catch (IOException e) {
-      throw new IllegalArgumentException(e);
+
+      BufferedImage image = this.toDatasetImage(map);
+      int id = this.datasetSequence.incrementAndGet();
+      String fileName = String.format("captcha_%08d.png", id);
+      boolean useTrain = this.shouldUseTrainSplit();
+      Path outputPath = useTrain ? this.datasetTrainPath.resolve(fileName) : this.datasetValidationPath.resolve(fileName);
+
+      try {
+        ImageIO.write(image, "png", outputPath.toFile());
+        BufferedWriter writer = useTrain ? this.trainLabels : this.validationLabels;
+        writer.write(fileName + "," + answer);
+        writer.newLine();
+        writer.flush();
+      } catch (IOException e) {
+        throw new IllegalArgumentException(e);
+      }
     }
   }
 
@@ -685,21 +701,23 @@ public class CaptchaGenerator {
   }
 
   private void closeDatasetWriters() {
-    try {
-      if (this.trainLabels != null) {
-        this.trainLabels.close();
+    synchronized (this.datasetLock) {
+      try {
+        if (this.trainLabels != null) {
+          this.trainLabels.close();
+        }
+        if (this.validationLabels != null) {
+          this.validationLabels.close();
+        }
+      } catch (IOException e) {
+        throw new IllegalArgumentException(e);
+      } finally {
+        this.trainLabels = null;
+        this.validationLabels = null;
+        this.datasetTrainPath = null;
+        this.datasetValidationPath = null;
+        this.datasetTotalImages = 0;
       }
-      if (this.validationLabels != null) {
-        this.validationLabels.close();
-      }
-    } catch (IOException e) {
-      throw new IllegalArgumentException(e);
-    } finally {
-      this.trainLabels = null;
-      this.validationLabels = null;
-      this.datasetTrainPath = null;
-      this.datasetValidationPath = null;
-      this.datasetTotalImages = 0;
     }
   }
 
