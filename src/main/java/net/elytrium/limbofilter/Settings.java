@@ -135,6 +135,10 @@ public class Settings extends YamlConfig {
 
     @Comment("Duration (in seconds) between regeneration of captchas")
     public long CAPTCHA_REGENERATE_RATE = 3600;
+    @Comment("Enable real-time Velocity statistics logging to console.")
+    public boolean REALTIME_VELOCITY_LOGS = true;
+    @Comment("Interval in seconds between real-time Velocity statistics log entries.")
+    public int REALTIME_VELOCITY_LOGS_INTERVAL = 1;
 
     @Comment("Coordinates for the falling check")
     @Create
@@ -224,8 +228,12 @@ public class Settings extends YamlConfig {
       public boolean PREPARE_CAPTCHA_PACKETS = false;
       @Comment("List of paths to the background image to draw on captcha. Any format, 128x128 128x128 px (will be automatically resized and stretched to the correct size). [] if empty.")
       public List<String> BACKPLATE_PATHS = List.of("");
+      @Comment("List of directories with background images to draw on captcha. Every file from these directories will be used.")
+      public List<String> BACKPLATE_DIRECTORIES = List.of("C:\\Users\\V\\PycharmProjects\\aicrypto\\backplates");
       @Comment("Path to the font files to draw on captcha (ttf), can be empty.")
       public List<String> FONTS_PATH = List.of("");
+      @Comment("List of directories with .ttf fonts. Every .ttf file from these directories will be loaded.")
+      public List<String> FONTS_DIRECTORIES = List.of("C:\\Users\\V\\PycharmProjects\\aicrypto\\fonts");
       @Comment("Use standard fonts(SANS_SERIF/SERIF/MONOSPACED), use false only if you provide fonts path")
       public boolean USE_STANDARD_FONTS = true;
       public int LETTER_OFFSET_X = 12;
@@ -256,7 +264,24 @@ public class Settings extends YamlConfig {
       @Comment("If enabled, both lowercase and uppercase captcha answers entered by players will be correct")
       public boolean IGNORE_CASE = true;
       public int LENGTH = 3;
+      @Comment("Generate random captcha length from MIN_LENGTH to MAX_LENGTH for every captcha.")
+      public boolean RANDOM_LENGTH = true;
+      public int MIN_LENGTH = 3;
+      public int MAX_LENGTH = 6;
+      @Comment("Enable additional random visual settings (font/color selection, curve size/amount) for each captcha.")
+      public boolean RANDOM_VISUAL_SETTINGS = true;
       public int IMAGES_COUNT = 1000;
+      @Comment({
+          "Set to true to export generated captcha images as .png and labels as .csv.",
+          "Useful for generating OCR/ML datasets."
+      })
+      public boolean SAVE_CAPTCHA_DATASET = true;
+      @Comment("Output path for captcha dataset export. Can be absolute path.")
+      public String CAPTCHA_DATASET_PATH = "S:\\dataset";
+      @Comment("Validation split ratio from 0.0 to 1.0. 0.1 means 10%.")
+      public double CAPTCHA_DATASET_VALIDATION_SPLIT = 0.1;
+      @Comment("Maximum amount of images for the training split.")
+      public int CAPTCHA_DATASET_TRAIN_IMAGES = 256000;
       public boolean NUMBER_SPELLING = false;
       @Comment({
           "Set to true if you want to verify the number spelling configuration.",

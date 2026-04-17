@@ -112,6 +112,7 @@ public class LimboFilter {
   private ScheduledTask refreshCaptchaTask;
   private ScheduledTask purgeCacheTask;
   private ScheduledTask logEnablerTask;
+  private ScheduledTask realtimeVelocityLogsTask;
   private CaptchaGenerator generator;
   private CachedPackets packets;
   private boolean logsDisabled;
@@ -202,6 +203,7 @@ public class LimboFilter {
     BotFilterSessionHandler.setFallingCheckTotalTime(Settings.IMP.MAIN.FALLING_CHECK_TICKS * 50L); // One tick == 50 millis
 
     this.statistics.restartUpdateTasks(this, this.server.getScheduler());
+    this.restartRealtimeVelocityLogsTask();
 
     if (this.refreshCaptchaTask != null) {
       this.refreshCaptchaTask.cancel();
@@ -444,6 +446,27 @@ public class LimboFilter {
       this.setLoggerLevel(this.initialLogLevel);
       LOGGER.warn("Re-enabling logger after attack. (see disable-log setting)");
     }
+  }
+
+  private void restartRealtimeVelocityLogsTask() {
+    if (this.realtimeVelocityLogsTask != null) {
+      this.realtimeVelocityLogsTask.cancel();
+      this.realtimeVelocityLogsTask = null;
+    }
+
+    if (!Settings.IMP.MAIN.REALTIME_VELOCITY_LOGS) {
+      return;
+    }
+
+    this.realtimeVelocityLogsTask = this.server.getScheduler()
+        .buildTask(this, () -> LOGGER.info(
+            "Velocity realtime stats: cps={}, pps={}, total={}, blocked={}",
+            this.statistics.getConnections(),
+            this.statistics.getPings(),
+            this.statistics.getTotalConnection(),
+            this.statistics.getBlockedConnections()))
+        .repeat(Settings.IMP.MAIN.REALTIME_VELOCITY_LOGS_INTERVAL, TimeUnit.SECONDS)
+        .schedule();
   }
 
   private void checkLoggerToDisable() {

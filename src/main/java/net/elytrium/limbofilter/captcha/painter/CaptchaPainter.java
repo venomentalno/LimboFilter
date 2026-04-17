@@ -97,7 +97,11 @@ public class CaptchaPainter {
   }
 
   public int[] drawCurves() {
-    if (this.curveColor == null || Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVES_AMOUNT == 0) {
+    return this.drawCurves(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVES_AMOUNT, Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVE_SIZE);
+  }
+
+  public int[] drawCurves(int curvesAmount, int curveSize) {
+    if (this.curveColor == null || curvesAmount == 0) {
       return null;
     }
 
@@ -109,8 +113,8 @@ public class CaptchaPainter {
 
     graphics.setColor(this.curveColorIterator.get().next());
 
-    for (int i = 0; i < Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVES_AMOUNT; ++i) {
-      this.addCurve(graphics);
+    for (int i = 0; i < curvesAmount; ++i) {
+      this.addCurve(graphics, curveSize);
     }
 
     return ((DataBufferInt) bufferedImage.getRaster().getDataBuffer()).getData();
@@ -163,8 +167,8 @@ public class CaptchaPainter {
     return new BufferedImage(this.width, this.height, BufferedImage.TYPE_INT_ARGB);
   }
 
-  private void addCurve(Graphics2D graphics) {
-    if (Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVE_SIZE != 0) {
+  private void addCurve(Graphics2D graphics, int curveSize) {
+    if (curveSize != 0) {
       CubicCurve2D cubicCurve;
 
       if (this.random.nextBoolean()) {
@@ -189,7 +193,7 @@ public class CaptchaPainter {
       Point2D.Double prev = new Point2D.Double(coords[0], coords[1]);
       pathIterator.next();
 
-      graphics.setStroke(new BasicStroke(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CURVE_SIZE));
+      graphics.setStroke(new BasicStroke(curveSize));
 
       while (!pathIterator.isDone()) {
         int currentSegment = pathIterator.currentSegment(coords);
