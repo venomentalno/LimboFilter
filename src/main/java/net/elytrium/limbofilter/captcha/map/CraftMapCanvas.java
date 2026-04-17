@@ -8,13 +8,12 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
 package net.elytrium.limbofilter.captcha.map;
 
 import com.velocitypowered.api.network.ProtocolVersion;
@@ -24,7 +23,6 @@ import net.elytrium.limboapi.api.protocol.packets.data.MapData;
 import net.elytrium.limboapi.api.protocol.packets.data.MapPalette;
 
 public class CraftMapCanvas {
-
   private final byte[][] canvas;
   private final ThreadLocal<byte[]> buffer17 = ThreadLocal.withInitial(() -> new byte[MapData.MAP_SIZE]);
   private final int width;
@@ -51,29 +49,27 @@ public class CraftMapCanvas {
     if (image == null) {
       return;
     }
-
     this.drawImageCraft(MapPalette.imageToBytes(image, ProtocolVersion.MAXIMUM_VERSION), width, height);
   }
 
   public void drawImageCraft(byte[] craftBytes, int width, int height) {
     for (int canvasY = 0; canvasY < this.height; canvasY++) {
       for (int canvasX = 0; canvasX < this.width; canvasX++) {
-        int canvas = this.canvas.length - 1 - canvasY * this.width - canvasX;
+        int canvasIndex = canvasY * this.width + canvasX;  // Fixed: normal row-major order
+        byte[] tile = this.canvas[canvasIndex];
         for (int dataY = 0; dataY < MapData.MAP_DIM_SIZE; dataY++) {
           int imageY = canvasY * MapData.MAP_DIM_SIZE + dataY;
           if (imageY >= height) {
             return;
           }
-
           for (int dataX = 0; dataX < MapData.MAP_DIM_SIZE; dataX++) {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + dataX;
             if (imageX >= width) {
               break;
             }
-
             byte color = craftBytes[imageY * width + imageX];
             if (color != MapPalette.TRANSPARENT) {
-              this.canvas[canvas][dataY * MapData.MAP_DIM_SIZE + dataX] = color;
+              tile[dataY * MapData.MAP_DIM_SIZE + dataX] = color;
             }
           }
         }
@@ -84,22 +80,21 @@ public class CraftMapCanvas {
   public void drawImageCraft(int[] craftBytes, int width, int height) {
     for (int canvasY = 0; canvasY < this.height; canvasY++) {
       for (int canvasX = 0; canvasX < this.width; canvasX++) {
-        int canvas = this.canvas.length - 1 - canvasY * this.width - canvasX;
+        int canvasIndex = canvasY * this.width + canvasX;  // Fixed: normal row-major order
+        byte[] tile = this.canvas[canvasIndex];
         for (int mapY = 0; mapY < MapData.MAP_DIM_SIZE; mapY++) {
           int imageY = canvasY * MapData.MAP_DIM_SIZE + mapY;
           if (imageY >= height) {
             return;
           }
-
           for (int mapX = 0; mapX < MapData.MAP_DIM_SIZE; mapX++) {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + mapX;
             if (imageX >= width) {
               break;
             }
-
             byte color = (byte) craftBytes[imageY * width + imageX];
             if (color != MapPalette.TRANSPARENT) {
-              this.canvas[canvas][mapY * MapData.MAP_DIM_SIZE + mapX] = color;
+              tile[mapY * MapData.MAP_DIM_SIZE + mapX] = color;
             }
           }
         }
@@ -117,16 +112,13 @@ public class CraftMapCanvas {
     byte[] fixedCanvas = this.buffer17.get();
     Arrays.fill(fixedCanvas, (byte) 0);
     MapPalette.convertImage(this.canvas[index], fixedCanvas, MapPalette.MapVersion.MINIMUM_VERSION);
-
     for (int i = 0; i < MapData.MAP_DIM_SIZE; ++i) {
       byte[] canvas = new byte[MapData.MAP_DIM_SIZE];
       for (int j = 0; j < MapData.MAP_DIM_SIZE; ++j) {
         canvas[j] = fixedCanvas[j * MapData.MAP_DIM_SIZE + i];
       }
-
       maps[i] = new MapData(i, canvas);
     }
-
     return maps;
   }
 

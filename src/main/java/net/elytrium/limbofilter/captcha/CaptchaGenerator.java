@@ -8,13 +8,12 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
 package net.elytrium.limbofilter.captcha;
 
 import com.google.common.primitives.Floats;
@@ -747,16 +746,17 @@ public class CaptchaGenerator {
     return true;
   }
 
-  private BufferedImage toDatasetImage(CraftMapCanvas map) {
+private BufferedImage toDatasetImage(CraftMapCanvas map) {
     int width = this.painter.getWidth();
     int height = this.painter.getHeight();
     int mapWidth = map.getWidth();
     byte[][] canvas = map.getCanvas();
     BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    int[] data = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();  // Direct buffer - huge speed-up
 
     for (int canvasY = 0; canvasY < map.getHeight(); canvasY++) {
-      for (int canvasX = 0; canvasX < map.getWidth(); canvasX++) {
-        int canvasIndex = canvas.length - 1 - canvasY * mapWidth - canvasX;
+      for (int canvasX = 0; canvasX < mapWidth; canvasX++) {
+        int canvasIndex = canvasY * mapWidth + canvasX;  // Fixed: normal row-major order (matches packet/spawn order)
         byte[] tile = canvas[canvasIndex];
         for (int y = 0; y < MapData.MAP_DIM_SIZE; y++) {
           int imageY = canvasY * MapData.MAP_DIM_SIZE + y;
@@ -764,12 +764,11 @@ public class CaptchaGenerator {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + x;
             int paletteIndex = Byte.toUnsignedInt(tile[y * MapData.MAP_DIM_SIZE + x]);
             int rgb = this.paletteIndexToRgb(paletteIndex);
-            image.setRGB(imageX, imageY, rgb);
+            data[imageY * width + imageX] = rgb;  // Direct write - no setRGB overhead
           }
         }
       }
     }
-
     return image;
   }
 
