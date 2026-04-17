@@ -257,6 +257,13 @@ public class Settings extends YamlConfig {
       public boolean IGNORE_CASE = true;
       public int LENGTH = 3;
       public int IMAGES_COUNT = 1000;
+      @Comment({
+          "Set to true to export generated captcha images as .png and answers as .csv.",
+          "Useful for generating OCR/ML datasets.",
+          "Output will be stored in the plugin directory under CAPTCHA_DATASET_PATH."
+      })
+      public boolean SAVE_CAPTCHA_DATASET = false;
+      public String CAPTCHA_DATASET_PATH = "captcha-dataset";
       public boolean NUMBER_SPELLING = false;
       @Comment({
           "Set to true if you want to verify the number spelling configuration.",
