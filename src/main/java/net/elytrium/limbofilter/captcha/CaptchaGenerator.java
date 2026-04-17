@@ -747,17 +747,17 @@ public class CaptchaGenerator {
     return true;
   }
 
-private BufferedImage toDatasetImage(CraftMapCanvas map) {
+  private BufferedImage toDatasetImage(CraftMapCanvas map) {
     int width = this.painter.getWidth();
     int height = this.painter.getHeight();
     int mapWidth = map.getWidth();
     byte[][] canvas = map.getCanvas();
     BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-    int[] data = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();  // Direct buffer - huge speed-up
+    int[] data = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();  // Direct buffer for speed
 
     for (int canvasY = 0; canvasY < map.getHeight(); canvasY++) {
       for (int canvasX = 0; canvasX < mapWidth; canvasX++) {
-        int canvasIndex = canvasY * mapWidth + canvasX;  // Fixed: normal row-major order (matches packet/spawn order)
+        int canvasIndex = canvasY * mapWidth + canvasX;  // Fixed: normal row-major order
         byte[] tile = canvas[canvasIndex];
         for (int y = 0; y < MapData.MAP_DIM_SIZE; y++) {
           int imageY = canvasY * MapData.MAP_DIM_SIZE + y;
@@ -765,14 +765,13 @@ private BufferedImage toDatasetImage(CraftMapCanvas map) {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + x;
             int paletteIndex = Byte.toUnsignedInt(tile[y * MapData.MAP_DIM_SIZE + x]);
             int rgb = this.paletteIndexToRgb(paletteIndex);
-            data[imageY * width + imageX] = rgb;  // Direct write - no setRGB overhead
+            data[imageY * width + imageX] = rgb;  // Direct write, no setRGB overhead
           }
         }
       }
     }
     return image;
   }
-
   /**
    * Converts a Minecraft map palette index to an RGB color.
    *
