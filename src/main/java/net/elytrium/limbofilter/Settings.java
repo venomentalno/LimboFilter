@@ -269,7 +269,7 @@ public class Settings extends YamlConfig {
       @Comment("Generate random captcha length from MIN_LENGTH to MAX_LENGTH for every captcha.")
       public boolean RANDOM_LENGTH = true;
       public int MIN_LENGTH = 3;
-      public int MAX_LENGTH = 6;
+      public int MAX_LENGTH = 5;
       @Comment("Enable additional random visual settings (font/color selection, curve size/amount) for each captcha.")
       public boolean RANDOM_VISUAL_SETTINGS = true;
       public int IMAGES_COUNT = 1000;
