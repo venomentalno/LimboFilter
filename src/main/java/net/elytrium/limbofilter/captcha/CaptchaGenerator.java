@@ -542,9 +542,10 @@ public class CaptchaGenerator {
     } else {
       packets17 = new MinecraftPacket[0];
     }
-
     cachedCaptcha.addCaptchaPacket(answer.value(), packets17, packet);
   }
+
+  public void shutdown() {
 
   private CraftMapCanvas nextBackplate() {
     if (!this.backplateFiles.isEmpty()) {
