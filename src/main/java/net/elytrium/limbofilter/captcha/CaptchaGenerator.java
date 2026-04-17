@@ -67,6 +67,79 @@ import net.elytrium.limbofilter.captcha.painter.RenderedFont;
 
 public class CaptchaGenerator {
 
+  /**
+   * The Minecraft map color palette base colors (RGB), indexed by color group (0-based).
+   * Each group has 4 shades produced by multiplying with 180, 220, 255, 135 and dividing by 255.
+   * These are the standard Minecraft map colors as of 1.12+.
+   */
+  private static final int[] MAP_BASE_COLORS = {
+      0x000000, // 0  - transparent/none
+      0x7FB238, // 1  - grass
+      0xF7E9A3, // 2  - sand
+      0xC7C7C7, // 3  - mushroom/wool
+      0xFF0000, // 4  - fire/redstone
+      0xA0A0FF, // 5  - ice
+      0xA7A7A7, // 6  - iron
+      0x007C00, // 7  - leaves
+      0xFFFFFF, // 8  - snow
+      0xA4A8B8, // 9  - clay
+      0x976D4D, // 10 - dirt
+      0x707070, // 11 - stone
+      0x4040FF, // 12 - water
+      0x8F8F8F, // 13 - wood
+      0x007F0E, // 14 - quartz
+      0xCCCCCC, // 15 - color_white
+      0xFF6600, // 16 - color_orange
+      0xB24CD8, // 17 - color_magenta
+      0x6699D8, // 18 - color_light_blue
+      0xE5E533, // 19 - color_yellow
+      0x7FCC19, // 20 - color_light_green
+      0xF27FA5, // 21 - color_pink
+      0x4C4C4C, // 22 - color_gray
+      0x999999, // 23 - color_light_gray
+      0x4C7F99, // 24 - color_cyan
+      0x7F3FB2, // 25 - color_purple
+      0x334CB2, // 26 - color_blue
+      0x664C33, // 27 - color_brown
+      0x667F33, // 28 - color_green
+      0x993333, // 29 - color_red
+      0x191919, // 30 - color_black
+      0xFAEE4D, // 31 - gold
+      0x5CDBD5, // 32 - diamond
+      0x4A80FF, // 33 - lapis
+      0x00D93A, // 34 - emerald
+      0x815631, // 35 - podzol
+      0x700200, // 36 - nether
+      0xD1B1A1, // 37 - terracotta_white
+      0x9F5224, // 38 - terracotta_orange
+      0x95576C, // 39 - terracotta_magenta
+      0x706C8A, // 40 - terracotta_light_blue
+      0xBA8524, // 41 - terracotta_yellow
+      0x677535, // 42 - terracotta_light_green
+      0xA04D4E, // 43 - terracotta_pink
+      0x392923, // 44 - terracotta_gray
+      0x876B62, // 45 - terracotta_light_gray
+      0x575C5C, // 46 - terracotta_cyan
+      0x7A4958, // 47 - terracotta_purple
+      0x4C3E5C, // 48 - terracotta_blue
+      0x4C3223, // 49 - terracotta_brown
+      0x4C522A, // 50 - terracotta_green
+      0x8E3C2E, // 51 - terracotta_red
+      0x251610, // 52 - terracotta_black
+      0xBD3031, // 53 - crimson_nylium
+      0x943F61, // 54 - crimson_stem
+      0x5C191D, // 55 - crimson_hyphae
+      0x167E86, // 56 - warped_nylium
+      0x3A8E8C, // 57 - warped_stem
+      0x562C3E, // 58 - warped_hyphae
+      0x14B485, // 59 - warped_wart_block
+      0x646464, // 60 - deepslate
+      0xD8AF93, // 61 - raw_iron
+      0x7FA796, // 62 - glow_lichen
+  };
+
+  private static final int[] SHADE_MULTIPLIERS = {180, 220, 255, 135};
+
   private final CaptchaPainter painter;
   private final List<CraftMapCanvas> preparedBackplates = new ArrayList<>();
   private final List<Path> backplateFiles = new ArrayList<>();
@@ -689,8 +762,8 @@ public class CaptchaGenerator {
           int imageY = canvasY * MapData.MAP_DIM_SIZE + y;
           for (int x = 0; x < MapData.MAP_DIM_SIZE; x++) {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + x;
-            int color = Byte.toUnsignedInt(tile[y * MapData.MAP_DIM_SIZE + x]);
-            int rgb = this.paletteIndexToRgb(color);
+            int paletteIndex = Byte.toUnsignedInt(tile[y * MapData.MAP_DIM_SIZE + x]);
+            int rgb = this.paletteIndexToRgb(paletteIndex);
             image.setRGB(imageX, imageY, rgb);
           }
         }
@@ -698,6 +771,39 @@ public class CaptchaGenerator {
     }
 
     return image;
+  }
+
+  /**
+   * Converts a Minecraft map palette index to an RGB color.
+   *
+   * <p>The map palette works as follows:
+   * - Palette index 0 = transparent (rendered as white background)
+   * - Indices 4..255: colorGroup = index / 4, shade = index % 4
+   * - The base RGB for each color group is multiplied by a shade factor:
+   *   shade 0 = *180/255, shade 1 = *220/255, shade 2 = *255/255 (full), shade 3 = *135/255
+   */
+  private int paletteIndexToRgb(int paletteIndex) {
+    // Index 0 and 1-3 (shade variants of "transparent/none") = white background
+    if (paletteIndex < 4) {
+      return 0xFFFFFF;
+    }
+
+    int colorGroup = paletteIndex / 4;
+    int shade = paletteIndex % 4;
+
+    // If color group is beyond our table, fall back to white
+    if (colorGroup >= MAP_BASE_COLORS.length) {
+      return 0xFFFFFF;
+    }
+
+    int baseRgb = MAP_BASE_COLORS[colorGroup];
+    int multiplier = SHADE_MULTIPLIERS[shade];
+
+    int r = ((baseRgb >> 16) & 0xFF) * multiplier / 255;
+    int g = ((baseRgb >> 8) & 0xFF) * multiplier / 255;
+    int b = (baseRgb & 0xFF) * multiplier / 255;
+
+    return (r << 16) | (g << 8) | b;
   }
 
   private void closeDatasetWriters() {
@@ -734,21 +840,6 @@ public class CaptchaGenerator {
     int trainImages = Math.max(1, Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_TRAIN_IMAGES);
     double split = Math.max(0.0, Math.min(0.99, Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_VALIDATION_SPLIT));
     return Math.max(trainImages, (int) Math.ceil(trainImages / (1.0 - split)));
-  }
-
-  private int paletteIndexToRgb(int paletteIndex) {
-    if (paletteIndex == Byte.toUnsignedInt(MapPalette.TRANSPARENT)) {
-      return 0xFFFFFF;
-    }
-
-    int colorGroup = paletteIndex / 4;
-    int shade = paletteIndex % 4;
-    float hue = (colorGroup % 64) / 64.0F;
-    float saturation = 0.65F + ((colorGroup / 64) * 0.12F);
-    float brightness = 0.55F + shade * 0.12F;
-    saturation = Math.min(1.0F, Math.max(0.0F, saturation));
-    brightness = Math.min(1.0F, Math.max(0.0F, brightness));
-    return Color.HSBtoRGB(hue, saturation, brightness) & 0x00FFFFFF;
   }
 
   private Path resolveDatasetRootPath(String configuredPath) {
