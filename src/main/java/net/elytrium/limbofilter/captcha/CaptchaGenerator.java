@@ -40,6 +40,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -91,6 +92,7 @@ public class CaptchaGenerator {
   private final AtomicInteger datasetTrainCounter = new AtomicInteger();
   private final AtomicInteger datasetValidationCounter = new AtomicInteger();
   private final Object datasetLock = new Object();
+  private int datasetTotalImages;
   private Path datasetTrainPath;
   private Path datasetValidationPath;
   private Writer trainLabels;
@@ -300,7 +302,7 @@ public class CaptchaGenerator {
     }
 
     try {
-      Path root = Path.of(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_PATH);
+      Path root = this.resolveDatasetRootPath(Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_PATH);
       this.datasetTrainPath = root.resolve("train");
       this.datasetValidationPath = root.resolve("validation");
       Files.createDirectories(this.datasetTrainPath);
@@ -313,6 +315,7 @@ public class CaptchaGenerator {
       this.datasetSequence.set(0);
       this.datasetTrainCounter.set(0);
       this.datasetValidationCounter.set(0);
+      this.datasetTotalImages = this.calculateDatasetTotalImages();
     } catch (IOException e) {
       throw new IllegalArgumentException(e);
     }
@@ -384,13 +387,14 @@ public class CaptchaGenerator {
       return thread;
     });
 
-    for (int i = 0; i < Settings.IMP.MAIN.CAPTCHA_GENERATOR.IMAGES_COUNT; ++i) {
+    int generationCount = this.getGenerationCount();
+    for (int i = 0; i < generationCount; ++i) {
       this.executor.execute(() -> this.genNewPacket(this.tempCachedCaptcha));
     }
 
     long start = System.currentTimeMillis();
     this.executor.execute(() -> {
-      while (this.executor.getCompletedTaskCount() != Settings.IMP.MAIN.CAPTCHA_GENERATOR.IMAGES_COUNT) {
+      while (this.executor.getCompletedTaskCount() != generationCount) {
         // Busy wait.
       }
 
@@ -631,6 +635,12 @@ public class CaptchaGenerator {
   }
 
   private boolean shouldUseTrainSplit() {
+    int currentTotal = this.datasetTrainCounter.get() + this.datasetValidationCounter.get();
+    if (this.datasetTotalImages > 0 && currentTotal >= this.datasetTotalImages) {
+      this.datasetValidationCounter.incrementAndGet();
+      return false;
+    }
+
     int maxTrainImages = Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_TRAIN_IMAGES;
     if (this.datasetTrainCounter.get() >= maxTrainImages) {
       this.datasetValidationCounter.incrementAndGet();
@@ -653,7 +663,7 @@ public class CaptchaGenerator {
     int height = this.painter.getHeight();
     int mapWidth = map.getWidth();
     byte[][] canvas = map.getCanvas();
-    BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+    BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 
     for (int canvasY = 0; canvasY < map.getHeight(); canvasY++) {
       for (int canvasX = 0; canvasX < map.getWidth(); canvasX++) {
@@ -664,7 +674,7 @@ public class CaptchaGenerator {
           for (int x = 0; x < MapData.MAP_DIM_SIZE; x++) {
             int imageX = canvasX * MapData.MAP_DIM_SIZE + x;
             int color = Byte.toUnsignedInt(tile[y * MapData.MAP_DIM_SIZE + x]);
-            int rgb = (color << 16) | (color << 8) | color;
+            int rgb = this.paletteIndexToRgb(color);
             image.setRGB(imageX, imageY, rgb);
           }
         }
@@ -689,6 +699,58 @@ public class CaptchaGenerator {
       this.validationLabels = null;
       this.datasetTrainPath = null;
       this.datasetValidationPath = null;
+      this.datasetTotalImages = 0;
     }
+  }
+
+  private int getGenerationCount() {
+    int imagesCount = Math.max(1, Settings.IMP.MAIN.CAPTCHA_GENERATOR.IMAGES_COUNT);
+    if (!Settings.IMP.MAIN.CAPTCHA_GENERATOR.SAVE_CAPTCHA_DATASET) {
+      return imagesCount;
+    }
+
+    return Math.max(imagesCount, this.calculateDatasetTotalImages());
+  }
+
+  private int calculateDatasetTotalImages() {
+    int trainImages = Math.max(1, Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_TRAIN_IMAGES);
+    double split = Math.max(0.0, Math.min(0.99, Settings.IMP.MAIN.CAPTCHA_GENERATOR.CAPTCHA_DATASET_VALIDATION_SPLIT));
+    return Math.max(trainImages, (int) Math.ceil(trainImages / (1.0 - split)));
+  }
+
+  private int paletteIndexToRgb(int paletteIndex) {
+    if (paletteIndex == Byte.toUnsignedInt(MapPalette.TRANSPARENT)) {
+      return 0xFFFFFF;
+    }
+
+    int colorGroup = paletteIndex / 4;
+    int shade = paletteIndex % 4;
+    float hue = (colorGroup % 64) / 64.0F;
+    float saturation = 0.65F + ((colorGroup / 64) * 0.12F);
+    float brightness = 0.55F + shade * 0.12F;
+    saturation = Math.min(1.0F, Math.max(0.0F, saturation));
+    brightness = Math.min(1.0F, Math.max(0.0F, brightness));
+    return Color.HSBtoRGB(hue, saturation, brightness) & 0x00FFFFFF;
+  }
+
+  private Path resolveDatasetRootPath(String configuredPath) {
+    String path = configuredPath == null ? "" : configuredPath.trim();
+    if (path.isEmpty()) {
+      return Paths.get("dataset");
+    }
+
+    if (path.matches("^[A-Za-z]:\\\\.*") && !System.getProperty("os.name", "").toLowerCase().contains("win")) {
+      String drive = String.valueOf(Character.toLowerCase(path.charAt(0)));
+      String rest = path.substring(3).replace('\\', '/');
+      Path wslPath = Paths.get("/mnt", drive, rest);
+      if (Files.exists(wslPath.getParent()) || Files.exists(wslPath)) {
+        LimboFilter.getLogger().warn("CAPTCHA_DATASET_PATH '{}' looks like a Windows path, using '{}' on this platform.", path, wslPath);
+        return wslPath;
+      }
+
+      LimboFilter.getLogger().warn("CAPTCHA_DATASET_PATH '{}' looks like a Windows path and may be inaccessible on this platform.", path);
+    }
+
+    return Path.of(path);
   }
 }
