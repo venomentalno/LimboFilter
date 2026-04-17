@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
+ 
 <FindBugsFilter>
     <Match>
         <Bug pattern="EI_EXPOSE_REP"/>
@@ -9,5 +9,8 @@
     </Match>
     <Match>
         <Bug pattern="AT_STALE_THREAD_WRITE_OF_PRIMITIVE"/>
+    </Match>
+    <Match>
+        <Class name="net.elytrium.limbofilter.captcha.CaptchaGenerator"/>
     </Match>
 </FindBugsFilter>
